@@ -109,6 +109,26 @@ class Events_Module extends Module_Base {
 		return null;
 	}
 
+	/**
+	 * Split a "Y-m-d H:i:s" (or "Y-m-d") datetime into the separate
+	 * date / hour / minute args The Events Calendar's create/update API needs.
+	 *
+	 * @param string $prefix EventStart | EventEnd
+	 * @param string $value  Datetime string.
+	 * @return array<string,string>
+	 */
+	private function split_datetime( $prefix, $value ) {
+		$ts = \strtotime( $value );
+		if ( ! $ts ) {
+			return array();
+		}
+		return array(
+			$prefix . 'Date'   => \gmdate( 'Y-m-d', $ts ),
+			$prefix . 'Hour'   => \gmdate( 'H', $ts ),
+			$prefix . 'Minute' => \gmdate( 'i', $ts ),
+		);
+	}
+
 	private function format_event( $post ) {
 		$id = $post->ID;
 		$start = function_exists( '\tribe_get_start_date' ) ? \tribe_get_start_date( $id, false, 'Y-m-d H:i:s' ) : \get_post_meta( $id, '_EventStartDate', true );
@@ -210,12 +230,14 @@ class Events_Module extends Module_Base {
 	public function execute_createEvent( $params ) {
 		$deny = $this->require_cap( 'edit_others_posts' ); if ( $deny ) return $deny;
 		if ( ! function_exists( 'tribe_create_event' ) ) return new \WP_Error( 'not_available', 'Events API unavailable', array( 'status' => 501 ) );
-		$args = array(
-			'post_title'   => \sanitize_text_field( $params['title'] ?? '' ),
-			'post_status'  => 'publish',
-			'post_content' => \wp_kses_post( $params['description'] ?? '' ),
-			'EventStartDate' => \sanitize_text_field( $params['start_date'] ?? '' ),
-			'EventEndDate'   => \sanitize_text_field( $params['end_date'] ?? '' ),
+		$args = array_merge(
+			array(
+				'post_title'   => \sanitize_text_field( $params['title'] ?? '' ),
+				'post_status'  => 'publish',
+				'post_content' => \wp_kses_post( $params['description'] ?? '' ),
+			),
+			$this->split_datetime( 'EventStart', $params['start_date'] ?? '' ),
+			$this->split_datetime( 'EventEnd', $params['end_date'] ?? '' )
 		);
 		if ( isset( $params['venue_id'] ) ) $args['EventVenueID'] = \absint( $params['venue_id'] );
 		if ( isset( $params['cost'] ) ) $args['EventCost'] = \sanitize_text_field( $params['cost'] );
@@ -231,16 +253,13 @@ class Events_Module extends Module_Base {
 		if ( ! $post || $post->post_type !== 'tribe_events' ) return new \WP_Error( 'event_not_found', 'Event not found', array( 'status' => 404 ) );
 		$args = array();
 		if ( isset( $params['title'] ) ) $args['post_title'] = \sanitize_text_field( $params['title'] );
-		if ( isset( $params['start_date'] ) ) $args['EventStartDate'] = \sanitize_text_field( $params['start_date'] );
-		if ( isset( $params['end_date'] ) ) $args['EventEndDate'] = \sanitize_text_field( $params['end_date'] );
+		if ( isset( $params['start_date'] ) ) $args = array_merge( $args, $this->split_datetime( 'EventStart', $params['start_date'] ) );
+		if ( isset( $params['end_date'] ) ) $args = array_merge( $args, $this->split_datetime( 'EventEnd', $params['end_date'] ) );
 		if ( isset( $params['cost'] ) ) $args['EventCost'] = \sanitize_text_field( $params['cost'] );
 		if ( function_exists( 'tribe_update_event' ) ) {
 			\tribe_update_event( $id, $args );
 		} else {
 			if ( isset( $args['post_title'] ) ) \wp_update_post( array( 'ID' => $id, 'post_title' => $args['post_title'] ) );
-			foreach ( array( 'EventStartDate' => '_EventStartDate', 'EventEndDate' => '_EventEndDate', 'EventCost' => '_EventCost' ) as $k => $meta ) {
-				if ( isset( $args[ $k ] ) ) \update_post_meta( $id, $meta, $args[ $k ] );
-			}
 		}
 		return $this->success_response( array( 'event_id' => $id, 'updated' => true ) );
 	}
