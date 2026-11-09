@@ -129,6 +129,41 @@ class Events_Module extends Module_Base {
 		);
 	}
 
+	/**
+	 * Per-object permission check (SEC-00) using the plugin's denial envelope.
+	 *
+	 * @param string $cap Meta capability (edit_post / delete_post).
+	 * @param int    $id  Post ID.
+	 * @return \WP_Error|null
+	 */
+	private function require_post_cap( $cap, $id ) {
+		if ( ! \current_user_can( $cap, $id ) ) {
+			return new \WP_Error( 'forbidden', "{$cap} capability required for this item", array( 'status' => 403 ) );
+		}
+		return null;
+	}
+
+	/**
+	 * Creating a published item of a TEC post type requires that type's own
+	 * create_posts + publish_posts capabilities (SEC-00 — native WP rule).
+	 *
+	 * @param string $post_type tribe_events | tribe_venue.
+	 * @return \WP_Error|null
+	 */
+	private function require_create_published( $post_type ) {
+		$obj = \get_post_type_object( $post_type );
+		if ( ! $obj ) {
+			return new \WP_Error( 'not_available', 'Events API unavailable', array( 'status' => 501 ) );
+		}
+		foreach ( array( $obj->cap->create_posts, $obj->cap->publish_posts ) as $cap ) {
+			$deny = $this->require_cap( $cap );
+			if ( $deny ) {
+				return $deny;
+			}
+		}
+		return null;
+	}
+
 	private function format_event( $post ) {
 		$id = $post->ID;
 		$start = function_exists( '\tribe_get_start_date' ) ? \tribe_get_start_date( $id, false, 'Y-m-d H:i:s' ) : \get_post_meta( $id, '_EventStartDate', true );
@@ -239,6 +274,9 @@ class Events_Module extends Module_Base {
 		$posts = \get_posts( array( 'post_type' => 'tribe_venue', 'posts_per_page' => \absint( $params['limit'] ?? 50 ) ?: 50, 'post_status' => 'any' ) );
 		$out = array();
 		foreach ( $posts as $v ) {
+			if ( ! \current_user_can( 'read_post', $v->ID ) ) {
+				continue;
+			}
 			$out[] = array( 'venue_id' => (int) $v->ID, 'name' => \get_the_title( $v ), 'city' => \get_post_meta( $v->ID, '_VenueCity', true ) );
 		}
 		return $this->success_response( array( 'venues' => $out, 'count' => count( $out ) ) );
@@ -249,6 +287,9 @@ class Events_Module extends Module_Base {
 		$id = \absint( $params['venue_id'] ?? 0 );
 		$post = $id ? \get_post( $id ) : null;
 		if ( ! $post || $post->post_type !== 'tribe_venue' ) return new \WP_Error( 'venue_not_found', 'Venue not found', array( 'status' => 404 ) );
+		if ( ! \current_user_can( 'read_post', $id ) ) {
+			return new \WP_Error( 'forbidden', 'read_post capability required for this venue', array( 'status' => 403 ) );
+		}
 		return $this->success_response( array(
 			'venue_id' => $id, 'name' => \get_the_title( $id ),
 			'address'  => \get_post_meta( $id, '_VenueAddress', true ),
@@ -264,13 +305,16 @@ class Events_Module extends Module_Base {
 		$posts = \get_posts( array( 'post_type' => 'tribe_organizer', 'posts_per_page' => \absint( $params['limit'] ?? 50 ) ?: 50, 'post_status' => 'any' ) );
 		$out = array();
 		foreach ( $posts as $o ) {
+			if ( ! \current_user_can( 'read_post', $o->ID ) ) {
+				continue;
+			}
 			$out[] = array( 'organizer_id' => (int) $o->ID, 'name' => \get_the_title( $o ), 'email' => \get_post_meta( $o->ID, '_OrganizerEmail', true ) );
 		}
 		return $this->success_response( array( 'organizers' => $out, 'count' => count( $out ) ) );
 	}
 
 	public function execute_createEvent( $params ) {
-		$deny = $this->require_cap( 'edit_others_posts' ); if ( $deny ) return $deny;
+		$deny = $this->require_create_published( 'tribe_events' ); if ( $deny ) return $deny;
 		if ( ! function_exists( 'tribe_create_event' ) ) return new \WP_Error( 'not_available', 'Events API unavailable', array( 'status' => 501 ) );
 		$args = array_merge(
 			array(
@@ -289,10 +333,13 @@ class Events_Module extends Module_Base {
 	}
 
 	public function execute_updateEvent( $params ) {
-		$deny = $this->require_cap( 'edit_others_posts' ); if ( $deny ) return $deny;
 		$id = \absint( $params['event_id'] ?? 0 );
 		$post = $id ? \get_post( $id ) : null;
 		if ( ! $post || $post->post_type !== 'tribe_events' ) return new \WP_Error( 'event_not_found', 'Event not found', array( 'status' => 404 ) );
+		$deny = $this->require_post_cap( 'edit_post', $id );
+		if ( $deny ) {
+			return $deny;
+		}
 		$args = array();
 		if ( isset( $params['title'] ) ) $args['post_title'] = \sanitize_text_field( $params['title'] );
 		if ( isset( $params['start_date'] ) ) $args = array_merge( $args, $this->split_datetime( 'EventStart', $params['start_date'] ) );
@@ -307,17 +354,20 @@ class Events_Module extends Module_Base {
 	}
 
 	public function execute_deleteEvent( $params ) {
-		$deny = $this->require_cap( 'delete_others_posts' ); if ( $deny ) return $deny;
 		$id = \absint( $params['event_id'] ?? 0 );
 		$post = $id ? \get_post( $id ) : null;
 		if ( ! $post || $post->post_type !== 'tribe_events' ) return new \WP_Error( 'event_not_found', 'Event not found', array( 'status' => 404 ) );
+		$deny = $this->require_post_cap( 'delete_post', $id );
+		if ( $deny ) {
+			return $deny;
+		}
 		$force = ! empty( $params['force'] );
 		$result = $force ? \wp_delete_post( $id, true ) : \wp_trash_post( $id );
 		return $this->success_response( array( 'event_id' => $id, 'deleted' => (bool) $result, 'force' => $force ) );
 	}
 
 	public function execute_createVenue( $params ) {
-		$deny = $this->require_cap( 'edit_others_posts' ); if ( $deny ) return $deny;
+		$deny = $this->require_create_published( 'tribe_venue' ); if ( $deny ) return $deny;
 		if ( ! function_exists( 'tribe_create_venue' ) ) return new \WP_Error( 'not_available', 'Events API unavailable', array( 'status' => 501 ) );
 		$id = \tribe_create_venue( array(
 			'Venue'   => \sanitize_text_field( $params['name'] ?? '' ),
