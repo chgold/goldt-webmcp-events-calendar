@@ -1,6 +1,10 @@
 <?php
 /**
- * The Events Calendar module — events, venues and organizers as AI tools.
+ * The Events Calendar module — events, venues and organizers as read-only AI tools.
+ *
+ * Free edition = read only. The write tools (createEvent, updateEvent,
+ * deleteEvent, createVenue, …) live in Goldnat for The Events Calendar — Pro,
+ * which registers them under the same `events` module name.
  *
  * @package GoldtWebMCP\Events
  */
@@ -12,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * The Events Calendar tools module (`events.*`).
+ * The Events Calendar read tools module (`events.*`).
  */
 class Events_Module extends Module_Base {
 
@@ -125,83 +129,6 @@ class Events_Module extends Module_Base {
 		);
 
 		$this->register_planned_read_tools();
-
-		// ── Writes ──
-		$this->register_tool(
-			'createEvent',
-			array(
-				'description'    => 'Create a new event.',
-				'input_schema'   => array(
-					'type'       => 'object',
-					'required'   => array( 'title', 'start_date', 'end_date' ),
-					'properties' => array(
-						'title'       => array( 'type' => 'string' ),
-						'start_date'  => array(
-							'type'        => 'string',
-							'description' => 'YYYY-MM-DD HH:MM:SS',
-						),
-						'end_date'    => array(
-							'type'        => 'string',
-							'description' => 'YYYY-MM-DD HH:MM:SS',
-						),
-						'description' => array( 'type' => 'string' ),
-						'venue_id'    => array( 'type' => 'integer' ),
-						'cost'        => array( 'type' => 'string' ),
-					),
-				),
-				'required_scope' => 'write',
-			)
-		);
-		$this->register_tool(
-			'updateEvent',
-			array(
-				'description'    => 'Update an event title / dates / cost.',
-				'input_schema'   => array(
-					'type'       => 'object',
-					'required'   => array( 'event_id' ),
-					'properties' => array(
-						'event_id'   => array( 'type' => 'integer' ),
-						'title'      => array( 'type' => 'string' ),
-						'start_date' => array( 'type' => 'string' ),
-						'end_date'   => array( 'type' => 'string' ),
-						'cost'       => array( 'type' => 'string' ),
-					),
-				),
-				'required_scope' => 'write',
-			)
-		);
-		$this->register_tool(
-			'deleteEvent',
-			array(
-				'description'    => 'Delete an event.',
-				'input_schema'   => array(
-					'type'       => 'object',
-					'required'   => array( 'event_id' ),
-					'properties' => array(
-						'event_id' => array( 'type' => 'integer' ),
-						'force'    => array( 'type' => 'boolean' ),
-					),
-				),
-				'required_scope' => 'write',
-			)
-		);
-		$this->register_tool(
-			'createVenue',
-			array(
-				'description'    => 'Create an event venue.',
-				'input_schema'   => array(
-					'type'       => 'object',
-					'required'   => array( 'name' ),
-					'properties' => array(
-						'name'    => array( 'type' => 'string' ),
-						'address' => array( 'type' => 'string' ),
-						'city'    => array( 'type' => 'string' ),
-						'country' => array( 'type' => 'string' ),
-					),
-				),
-				'required_scope' => 'write',
-			)
-		);
 	}
 
 	/**
@@ -225,61 +152,6 @@ class Events_Module extends Module_Base {
 	private function require_cap( $cap ) {
 		if ( ! \current_user_can( $cap ) ) {
 			return new \WP_Error( 'forbidden', "{$cap} capability required", array( 'status' => 403 ) );
-		}
-		return null;
-	}
-
-	/**
-	 * Split a "Y-m-d H:i:s" (or "Y-m-d") datetime into the separate
-	 * date / hour / minute args The Events Calendar's create/update API needs.
-	 *
-	 * @param string $prefix EventStart | EventEnd.
-	 * @param string $value  Datetime string.
-	 * @return array<string,string>
-	 */
-	private function split_datetime( $prefix, $value ) {
-		$ts = \strtotime( $value );
-		if ( ! $ts ) {
-			return array();
-		}
-		return array(
-			$prefix . 'Date'   => \gmdate( 'Y-m-d', $ts ),
-			$prefix . 'Hour'   => \gmdate( 'H', $ts ),
-			$prefix . 'Minute' => \gmdate( 'i', $ts ),
-		);
-	}
-
-	/**
-	 * Per-object permission check (SEC-00) using the plugin's denial envelope.
-	 *
-	 * @param string $cap Meta capability (edit_post / delete_post).
-	 * @param int    $id  Post ID.
-	 * @return \WP_Error|null
-	 */
-	private function require_post_cap( $cap, $id ) {
-		if ( ! \current_user_can( $cap, $id ) ) {
-			return new \WP_Error( 'forbidden', "{$cap} capability required for this item", array( 'status' => 403 ) );
-		}
-		return null;
-	}
-
-	/**
-	 * Creating a published item of a TEC post type requires that type's own
-	 * create_posts + publish_posts capabilities (SEC-00 — native WP rule).
-	 *
-	 * @param string $post_type tribe_events | tribe_venue.
-	 * @return \WP_Error|null
-	 */
-	private function require_create_published( $post_type ) {
-		$obj = \get_post_type_object( $post_type );
-		if ( ! $obj ) {
-			return new \WP_Error( 'not_available', 'Events API unavailable', array( 'status' => 501 ) );
-		}
-		foreach ( array( $obj->cap->create_posts, $obj->cap->publish_posts ) as $cap ) {
-			$deny = $this->require_cap( $cap );
-			if ( $deny ) {
-				return $deny;
-			}
 		}
 		return null;
 	}
@@ -567,154 +439,6 @@ class Events_Module extends Module_Base {
 			array(
 				'organizers' => $out,
 				'count'      => count( $out ),
-			)
-		);
-	}
-
-	/**
-	 * Tool handler for `events.createEvent`.
-	 *
-	 * @param array $params Validated tool input.
-	 * @return array|\WP_Error
-	 */
-	public function execute_createEvent( $params ) {
-		$deny = $this->require_create_published( 'tribe_events' );
-		if ( $deny ) {
-			return $deny;
-		}
-		if ( ! function_exists( 'tribe_create_event' ) ) {
-			return new \WP_Error( 'not_available', 'Events API unavailable', array( 'status' => 501 ) );
-		}
-		$args = array_merge(
-			array(
-				'post_title'   => \sanitize_text_field( $params['title'] ?? '' ),
-				'post_status'  => 'publish',
-				'post_content' => \wp_kses_post( $params['description'] ?? '' ),
-			),
-			$this->split_datetime( 'EventStart', $params['start_date'] ?? '' ),
-			$this->split_datetime( 'EventEnd', $params['end_date'] ?? '' )
-		);
-		if ( isset( $params['venue_id'] ) ) {
-			$args['EventVenueID'] = \absint( $params['venue_id'] );
-		}
-		if ( isset( $params['cost'] ) ) {
-			$args['EventCost'] = \sanitize_text_field( $params['cost'] );
-		}
-		$id = \tribe_create_event( $args );
-		if ( ! $id ) {
-			return new \WP_Error( 'create_failed', 'Could not create event', array( 'status' => 500 ) );
-		}
-		return $this->success_response(
-			array(
-				'event_id' => (int) $id,
-				'title'    => $args['post_title'],
-			)
-		);
-	}
-
-	/**
-	 * Tool handler for `events.updateEvent`.
-	 *
-	 * @param array $params Validated tool input.
-	 * @return array|\WP_Error
-	 */
-	public function execute_updateEvent( $params ) {
-		$id   = \absint( $params['event_id'] ?? 0 );
-		$post = $id ? \get_post( $id ) : null;
-		if ( ! $post || 'tribe_events' !== $post->post_type ) {
-			return new \WP_Error( 'event_not_found', 'Event not found', array( 'status' => 404 ) );
-		}
-		$deny = $this->require_post_cap( 'edit_post', $id );
-		if ( $deny ) {
-			return $deny;
-		}
-		$args = array();
-		if ( isset( $params['title'] ) ) {
-			$args['post_title'] = \sanitize_text_field( $params['title'] );
-		}
-		if ( isset( $params['start_date'] ) ) {
-			$args = array_merge( $args, $this->split_datetime( 'EventStart', $params['start_date'] ) );
-		}
-		if ( isset( $params['end_date'] ) ) {
-			$args = array_merge( $args, $this->split_datetime( 'EventEnd', $params['end_date'] ) );
-		}
-		if ( isset( $params['cost'] ) ) {
-			$args['EventCost'] = \sanitize_text_field( $params['cost'] );
-		}
-		if ( function_exists( 'tribe_update_event' ) ) {
-			\tribe_update_event( $id, $args );
-		} elseif ( isset( $args['post_title'] ) ) {
-				\wp_update_post(
-					array(
-						'ID'         => $id,
-						'post_title' => $args['post_title'],
-					)
-				);
-		}
-		return $this->success_response(
-			array(
-				'event_id' => $id,
-				'updated'  => true,
-			)
-		);
-	}
-
-	/**
-	 * Tool handler for `events.deleteEvent`.
-	 *
-	 * @param array $params Validated tool input.
-	 * @return array|\WP_Error
-	 */
-	public function execute_deleteEvent( $params ) {
-		$id   = \absint( $params['event_id'] ?? 0 );
-		$post = $id ? \get_post( $id ) : null;
-		if ( ! $post || 'tribe_events' !== $post->post_type ) {
-			return new \WP_Error( 'event_not_found', 'Event not found', array( 'status' => 404 ) );
-		}
-		$deny = $this->require_post_cap( 'delete_post', $id );
-		if ( $deny ) {
-			return $deny;
-		}
-		$force  = ! empty( $params['force'] );
-		$result = $force ? \wp_delete_post( $id, true ) : \wp_trash_post( $id );
-		return $this->success_response(
-			array(
-				'event_id' => $id,
-				'deleted'  => (bool) $result,
-				'force'    => $force,
-			)
-		);
-	}
-
-	/**
-	 * Tool handler for `events.createVenue`.
-	 *
-	 * @param array $params Validated tool input.
-	 * @return array|\WP_Error
-	 */
-	public function execute_createVenue( $params ) {
-		$deny = $this->require_create_published( 'tribe_venue' );
-		if ( $deny ) {
-			return $deny;
-		}
-		if ( ! function_exists( 'tribe_create_venue' ) ) {
-			return new \WP_Error( 'not_available', 'Events API unavailable', array( 'status' => 501 ) );
-		}
-		$id = \tribe_create_venue(
-			array(
-				'Venue'   => \sanitize_text_field( $params['name'] ?? '' ),
-				'Address' => \sanitize_text_field( $params['address'] ?? '' ),
-				'City'    => \sanitize_text_field( $params['city'] ?? '' ),
-				'Country' => \sanitize_text_field( $params['country'] ?? '' ),
-			)
-		);
-		if ( ! $id ) {
-			return new \WP_Error( 'create_failed', 'Could not create venue', array( 'status' => 500 ) );
-		}
-		return $this->success_response(
-			array(
-				'venue_id' => (int) $id,
-				'name'     => $params['name'] ?? '',
 			)
 		);
 	}

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 — 2026-11-09
+
+- **Breaking:** write tools moved to Goldnat for The Events Calendar — Pro (`goldt-webmcp-events-calendar-pro`):
+  `events.createEvent`, `events.updateEvent`, `events.deleteEvent`, `events.createVenue`. The free edition is now
+  read-only (16 read tools). Installing Pro restores the same tool names; Pro 1.0.0 also adds venue / organizer
+  updates and deletes, category / tag assignment, featured image and featured flag.
+- Removed the write-only helpers (`split_datetime`, `require_post_cap`, `require_create_published`); the date
+  handling fix (site timezone instead of `gmdate()`) ships in Pro.
+
 ## 1.1.0 — 2026-11-09
 
 - New read tools (scope `read`, Deep Research round #2): `events.listPastEvents` (ended before now, newest first; filters start_date / category / venue_id / organizer_id), `events.getEventsByVenue` and `events.getEventsByOrganizer` (date range + status filters), `events.getFeaturedEvents`, `events.getOrganizer`, `events.listEventCategories` (hierarchical `tribe_events_cat`), `events.listEventTags` (with published-event count), `events.searchVenues` (name / address / city / state / zip / country, optional near_lat + near_lng + radius_km for venues with coordinates) and `events.searchOrganizers` (name / email / phone / website).
