@@ -3,7 +3,7 @@
  * Plugin Name: Goldnat for The Events Calendar
  * Plugin URI: https://goldnat.ai/plugins/goldt-webmcp-events-calendar
  * Description: The Events Calendar integration for Goldnat — exposes events, venues and organizers as AI tools via the Goldnat WebMCP Bridge.
- * Version: 1.0.1
+ * Version: 1.1.0
  * Author: chgold
  * Author URI: https://goldnat.ai/
  * License: Proprietary
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'GOLDTWMCP_EVENTS_VERSION', '1.0.1' );
+define( 'GOLDTWMCP_EVENTS_VERSION', '1.1.0' );
 define( 'GOLDTWMCP_EVENTS_PATH', plugin_dir_path( __FILE__ ) );
 
 /**
