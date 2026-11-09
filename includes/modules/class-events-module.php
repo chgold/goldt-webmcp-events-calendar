@@ -146,14 +146,45 @@ class Events_Module extends Module_Base {
 		);
 	}
 
+	/**
+	 * Run a paged event query and keep only events the token's user can read
+	 * natively (SEC-00): published events for everyone, drafts / private /
+	 * pending only when `read_post` on that id passes.
+	 *
+	 * @param callable $fetch Receives the page number, returns WP_Post[].
+	 * @param int      $limit Max results.
+	 * @return array Formatted events.
+	 */
+	private function readable_events( $fetch, $limit ) {
+		$out  = array();
+		$page = 1;
+		do {
+			$batch = (array) $fetch( $page );
+			foreach ( $batch as $e ) {
+				if ( ! \current_user_can( 'read_post', $e->ID ) ) {
+					continue;
+				}
+				$out[] = $this->format_event( $e );
+				if ( count( $out ) >= $limit ) {
+					return $out;
+				}
+			}
+			++$page;
+			$fetched = count( $batch );
+		} while ( $fetched === $limit && $page <= 20 );
+		return $out;
+	}
+
 	public function execute_listEvents( $params ) {
 		$deny = $this->require_cap( 'edit_posts' ); if ( $deny ) return $deny;
-		$args = array( 'posts_per_page' => \absint( $params['limit'] ?? 25 ) ?: 25, 'post_status' => 'any' );
+		$limit = \absint( $params['limit'] ?? 25 ) ?: 25;
+		$args = array( 'posts_per_page' => $limit, 'post_status' => 'any' );
 		if ( ! empty( $params['start_date'] ) ) $args['start_date'] = \sanitize_text_field( $params['start_date'] );
 		if ( ! empty( $params['end_date'] ) ) $args['end_date'] = \sanitize_text_field( $params['end_date'] );
-		$events = \tribe_get_events( $args );
-		$out = array();
-		foreach ( (array) $events as $e ) $out[] = $this->format_event( $e );
+		$fetch = function ( $page ) use ( $args ) {
+			return \tribe_get_events( array_merge( $args, array( 'paged' => $page ) ) );
+		};
+		$out   = $this->readable_events( $fetch, $limit );
 		return $this->success_response( array( 'events' => $out, 'count' => count( $out ) ) );
 	}
 
@@ -174,6 +205,9 @@ class Events_Module extends Module_Base {
 		$id = \absint( $params['event_id'] ?? 0 );
 		$post = $id ? \get_post( $id ) : null;
 		if ( ! $post || $post->post_type !== 'tribe_events' ) return new \WP_Error( 'event_not_found', 'Event not found', array( 'status' => 404 ) );
+		if ( ! \current_user_can( 'read_post', $id ) ) {
+			return new \WP_Error( 'forbidden', 'read_post capability required for this event', array( 'status' => 403 ) );
+		}
 		$data = $this->format_event( $post );
 		$data['description'] = \wp_strip_all_tags( $post->post_content );
 		if ( $data['venue_id'] ) $data['venue'] = \get_the_title( $data['venue_id'] );
@@ -183,12 +217,20 @@ class Events_Module extends Module_Base {
 
 	public function execute_searchEvents( $params ) {
 		$deny = $this->require_cap( 'edit_posts' ); if ( $deny ) return $deny;
-		$posts = \get_posts( array(
-			'post_type' => 'tribe_events', 's' => \sanitize_text_field( $params['search'] ?? '' ),
-			'posts_per_page' => \absint( $params['limit'] ?? 20 ) ?: 20, 'post_status' => 'any',
-		) );
-		$out = array();
-		foreach ( $posts as $e ) $out[] = $this->format_event( $e );
+		$limit  = \absint( $params['limit'] ?? 20 ) ?: 20;
+		$search = \sanitize_text_field( $params['search'] ?? '' );
+		$fetch  = function ( $page ) use ( $search, $limit ) {
+			return \get_posts(
+				array(
+					'post_type'      => 'tribe_events',
+					's'              => $search,
+					'posts_per_page' => $limit,
+					'paged'          => $page,
+					'post_status'    => 'any',
+				)
+			);
+		};
+		$out    = $this->readable_events( $fetch, $limit );
 		return $this->success_response( array( 'events' => $out, 'count' => count( $out ) ) );
 	}
 
