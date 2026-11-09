@@ -11,6 +11,7 @@
  * Requires PHP: 7.4
  * Requires Plugins: goldt-webmcp-bridge, the-events-calendar
  * Text Domain: goldt-webmcp-events-calendar
+ *
  * @package GoldtWebMCP\Events
  */
 
@@ -28,26 +29,36 @@ define( 'GOLDTWMCP_EVENTS_PATH', plugin_dir_path( __FILE__ ) );
  */
 function goldtwmcp_events_check_dependencies() {
 	if ( ! defined( 'GOLDTWMCP_VERSION' ) ) {
-		add_action( 'admin_notices', function () {
-			echo '<div class="notice notice-error"><p><strong>Goldnat for The Events Calendar:</strong> Requires the free Goldnat WebMCP Bridge plugin.</p></div>';
-		} );
+		add_action(
+			'admin_notices',
+			function () {
+				echo '<div class="notice notice-error"><p><strong>Goldnat for The Events Calendar:</strong> Requires the free Goldnat WebMCP Bridge plugin.</p></div>';
+			}
+		);
 		return false;
 	}
 	if ( ! class_exists( 'Tribe__Events__Main' ) ) {
-		add_action( 'admin_notices', function () {
-			echo '<div class="notice notice-error"><p><strong>Goldnat for The Events Calendar:</strong> Requires The Events Calendar plugin.</p></div>';
-		} );
+		add_action(
+			'admin_notices',
+			function () {
+				echo '<div class="notice notice-error"><p><strong>Goldnat for The Events Calendar:</strong> Requires The Events Calendar plugin.</p></div>';
+			}
+		);
 		return false;
 	}
 	return true;
 }
 
-add_action( 'plugins_loaded', function () {
-	if ( ! goldtwmcp_events_check_dependencies() ) {
-		return;
-	}
-	add_action( 'goldtwmcp_register_modules', 'goldtwmcp_events_register_modules' );
-}, 30 );
+add_action(
+	'plugins_loaded',
+	function () {
+		if ( ! goldtwmcp_events_check_dependencies() ) {
+			return;
+		}
+		add_action( 'goldtwmcp_register_modules', 'goldtwmcp_events_register_modules' );
+	},
+	30
+);
 
 /**
  * Instantiate + register the Events module.
